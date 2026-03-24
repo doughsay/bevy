@@ -1113,6 +1113,10 @@ wasm = false
 
 # 3D Rendering
 [[example]]
+name = "terrain_shadow_mask_test"
+path = "examples/3d/terrain_shadow_mask_test.rs"
+
+[[example]]
 name = "3d_scene"
 path = "examples/3d/3d_scene.rs"
 # Causes an ICE on docs.rs
