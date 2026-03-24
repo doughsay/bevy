@@ -193,22 +193,34 @@ fn fetch_directional_shadow(light_id: u32, frag_position: vec4<f32>, surface_nor
     let light = &view_bindings::lights.directional_lights[light_id];
     let cascade_index = get_cascade_index(light_id, view_z);
 
+    var shadow: f32;
     if (cascade_index >= (*light).num_cascades) {
-        return 1.0;
-    }
+        shadow = 1.0;
+    } else {
+        shadow = sample_directional_cascade(light_id, cascade_index, frag_position, surface_normal);
 
-    var shadow = sample_directional_cascade(light_id, cascade_index, frag_position, surface_normal);
-
-    // Blend with the next cascade, if there is one.
-    let next_cascade_index = cascade_index + 1u;
-    if (next_cascade_index < (*light).num_cascades) {
-        let this_far_bound = (*light).cascades[cascade_index].far_bound;
-        let next_near_bound = (1.0 - (*light).cascades_overlap_proportion) * this_far_bound;
-        if (-view_z >= next_near_bound) {
-            let next_shadow = sample_directional_cascade(light_id, next_cascade_index, frag_position, surface_normal);
-            shadow = mix(shadow, next_shadow, (-view_z - next_near_bound) / (this_far_bound - next_near_bound));
+        // Blend with the next cascade, if there is one.
+        let next_cascade_index = cascade_index + 1u;
+        if (next_cascade_index < (*light).num_cascades) {
+            let this_far_bound = (*light).cascades[cascade_index].far_bound;
+            let next_near_bound = (1.0 - (*light).cascades_overlap_proportion) * this_far_bound;
+            if (-view_z >= next_near_bound) {
+                let next_shadow = sample_directional_cascade(light_id, next_cascade_index, frag_position, surface_normal);
+                shadow = mix(shadow, next_shadow, (-view_z - next_near_bound) / (this_far_bound - next_near_bound));
+            }
         }
     }
+
+#ifdef TERRAIN_SHADOW_MASK
+    // Sample screen-space terrain shadow mask.
+    // Reconstruct pixel coords from world position via clip projection.
+    let clip = view_bindings::view.clip_from_world * frag_position;
+    let ndc = clip.xy / clip.w;
+    let pixel = vec2<i32>((ndc * vec2(0.5, -0.5) + 0.5) * view_bindings::view.viewport.zw);
+    let terrain_shadow = textureLoad(view_bindings::terrain_shadow_mask, pixel, 0).r;
+    shadow = min(shadow, terrain_shadow);
+#endif // TERRAIN_SHADOW_MASK
+
     return shadow;
 }
 
