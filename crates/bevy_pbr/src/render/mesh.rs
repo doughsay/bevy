@@ -332,6 +332,7 @@ pub fn check_views_need_specialization(
         ),
         Has<OrderIndependentTransparencySettings>,
         Has<ExtractedAtmosphere>,
+        Has<TerrainShadowMaskTexture>,
     )>,
     ticks: SystemChangeTick,
 ) {
@@ -350,6 +351,7 @@ pub fn check_views_need_specialization(
         (has_environment_maps, has_irradiance_volumes),
         has_oit,
         has_atmosphere,
+        has_terrain_shadow_mask,
     ) in views.iter_mut()
     {
         let mut view_key = MeshPipelineKey::from_msaa_samples(msaa.samples())
@@ -389,6 +391,10 @@ pub fn check_views_need_specialization(
 
         if has_atmosphere {
             view_key |= MeshPipelineKey::ATMOSPHERE;
+        }
+
+        if has_terrain_shadow_mask {
+            view_key |= MeshPipelineKey::TERRAIN_SHADOW_MASK;
         }
 
         if view.invert_culling {
@@ -2183,7 +2189,8 @@ bitflags::bitflags! {
         const DISTANCE_FOG                      = 1 << 21;
         const ATMOSPHERE                        = 1 << 22;
         const INVERT_CULLING                    = 1 << 23;
-        const LAST_FLAG                         = Self::INVERT_CULLING.bits();
+        const TERRAIN_SHADOW_MASK               = 1 << 24;
+        const LAST_FLAG                         = Self::TERRAIN_SHADOW_MASK.bits();
 
         // Bitfields
         const MSAA_RESERVED_BITS                = Self::MSAA_MASK_BITS << Self::MSAA_SHIFT_BITS;
@@ -2655,6 +2662,10 @@ impl SpecializedMeshPipeline for MeshPipeline {
 
         if key.contains(MeshPipelineKey::ATMOSPHERE) {
             shader_defs.push("ATMOSPHERE".into());
+        }
+
+        if key.contains(MeshPipelineKey::TERRAIN_SHADOW_MASK) {
+            shader_defs.push("TERRAIN_SHADOW_MASK".into());
         }
 
         if self.binding_arrays_are_usable {

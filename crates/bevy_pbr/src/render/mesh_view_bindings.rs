@@ -84,6 +84,7 @@ bitflags::bitflags! {
         const DEFERRED_PREPASS            = 1 << 4;
         const OIT_ENABLED                 = 1 << 5;
         const ATMOSPHERE                  = 1 << 6;
+        const TERRAIN_SHADOW_MASK         = 1 << 7;
     }
 }
 
@@ -96,7 +97,7 @@ impl MeshPipelineViewLayoutKey {
         use MeshPipelineViewLayoutKey as Key;
 
         format!(
-            "mesh_view_layout{}{}{}{}{}{}{}",
+            "mesh_view_layout{}{}{}{}{}{}{}{}",
             if self.contains(Key::MULTISAMPLED) {
                 "_multisampled"
             } else {
@@ -132,6 +133,11 @@ impl MeshPipelineViewLayoutKey {
             } else {
                 Default::default()
             },
+            if self.contains(Key::TERRAIN_SHADOW_MASK) {
+                "_terrain_shadow_mask"
+            } else {
+                Default::default()
+            },
         )
     }
 }
@@ -160,6 +166,9 @@ impl From<MeshPipelineKey> for MeshPipelineViewLayoutKey {
         }
         if value.contains(MeshPipelineKey::ATMOSPHERE) {
             result |= MeshPipelineViewLayoutKey::ATMOSPHERE;
+        }
+        if value.contains(MeshPipelineKey::TERRAIN_SHADOW_MASK) {
+            result |= MeshPipelineViewLayoutKey::TERRAIN_SHADOW_MASK;
         }
 
         result
@@ -410,6 +419,13 @@ fn layout_entries(
         ));
     }
 
+    // Terrain shadow mask
+    if layout_key.contains(MeshPipelineViewLayoutKey::TERRAIN_SHADOW_MASK) {
+        entries = entries.extend_with_indices((
+            (32, texture_2d(TextureSampleType::Float { filterable: false })),
+        ));
+    }
+
     let mut binding_array_entries = DynamicBindGroupLayoutEntries::new(ShaderStages::FRAGMENT);
     binding_array_entries = binding_array_entries.extend_with_indices((
         (0, environment_map_entries[0]),
@@ -553,6 +569,15 @@ pub fn generate_view_layouts(
     })
 }
 
+/// Component on camera entities (in the render world) holding the terrain shadow mask texture view.
+///
+/// When present, the `TERRAIN_SHADOW_MASK` shader def is set and binding 32 (group 0) is
+/// populated with the texture so shaders can sample it to modulate directional shadow intensity.
+#[derive(Component)]
+pub struct TerrainShadowMaskTexture {
+    pub texture_view: TextureView,
+}
+
 #[derive(Component)]
 pub struct MeshViewBindGroup {
     pub main: BindGroup,
@@ -586,6 +611,7 @@ pub fn prepare_mesh_view_bind_groups(
         Has<OrderIndependentTransparencySettings>,
         Option<&AtmosphereTextures>,
         Has<ExtractedAtmosphere>,
+        Option<&TerrainShadowMaskTexture>,
     )>,
     (images, mut fallback_images, fallback_image, fallback_image_zero): (
         Res<RenderAssets<GpuImage>>,
@@ -641,6 +667,7 @@ pub fn prepare_mesh_view_bind_groups(
             has_oit,
             atmosphere_textures,
             has_atmosphere,
+            terrain_shadow_mask,
         ) in &views
         {
             let fallback_ssao = fallback_images
@@ -658,6 +685,9 @@ pub fn prepare_mesh_view_bind_groups(
             }
             if has_atmosphere {
                 layout_key |= MeshPipelineViewLayoutKey::ATMOSPHERE;
+            }
+            if terrain_shadow_mask.is_some() {
+                layout_key |= MeshPipelineViewLayoutKey::TERRAIN_SHADOW_MASK;
             }
 
             let layout = mesh_pipeline.get_view_layout(layout_key);
@@ -749,6 +779,12 @@ pub fn prepare_mesh_view_bind_groups(
                     (29, &atmosphere_textures.transmittance_lut.default_view),
                     (30, &***atmosphere_sampler),
                     (31, atmosphere_buffer_binding),
+                ));
+            }
+
+            if let Some(shadow_mask) = terrain_shadow_mask {
+                entries = entries.extend_with_indices((
+                    (32, &shadow_mask.texture_view),
                 ));
             }
 
