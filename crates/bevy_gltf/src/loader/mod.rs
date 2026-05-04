@@ -105,6 +105,11 @@ pub enum GltfError {
     #[error("invalid image mime type: {0}")]
     #[from(ignore)]
     InvalidImageMimeType(String),
+    /// Texture has no resolvable image source (neither legacy `texture.source`
+    /// nor a recognized texture extension like `KHR_texture_basisu`).
+    #[error("texture {0} has no resolvable image source")]
+    #[from(ignore)]
+    MissingTextureSource(usize),
     /// Error when loading a texture. Might be due to a disabled image file format feature.
     #[error("You may need to add the feature for the file format: {0}")]
     ImageError(#[from] TextureError),
@@ -596,6 +601,7 @@ impl GltfLoader {
         if gltf.textures().len() == 1 || cfg!(target_arch = "wasm32") {
             for texture in gltf.textures() {
                 let image = load_image(
+                    &gltf,
                     texture.clone(),
                     &buffer_data,
                     &linear_textures,
@@ -615,12 +621,14 @@ impl GltfLoader {
             #[cfg(not(target_arch = "wasm32"))]
             IoTaskPool::get()
                 .scope(|scope| {
+                    let gltf = &gltf;
                     gltf.textures().for_each(|gltf_texture| {
                         let asset_path = load_context.path().clone();
                         let linear_textures = &linear_textures;
                         let buffer_data = &buffer_data;
                         scope.spawn(async move {
                             load_image(
+                                gltf,
                                 gltf_texture,
                                 buffer_data,
                                 linear_textures,
@@ -1113,6 +1121,7 @@ impl AssetLoader for GltfLoader {
 
 /// Loads a glTF texture as a bevy [`Image`] and returns it together with its label.
 async fn load_image<'a, 'b>(
+    gltf: &'a gltf::Gltf,
     gltf_texture: gltf::Texture<'a>,
     buffer_data: &[Vec<u8>],
     linear_textures: &HashSet<usize>,
@@ -1128,7 +1137,18 @@ async fn load_image<'a, 'b>(
         texture_sampler(&gltf_texture, default_sampler)
     };
 
-    match gltf_texture.source().source() {
+    // Resolve which image to load. `KHR_texture_basisu` (KTX2/UASTC payloads
+    // produced by tools like `gltf-transform uastc`) takes precedence when
+    // present; otherwise fall back to the legacy `texture.source` field. With
+    // the `allow_empty_texture` feature, that legacy field is optional.
+    let image = gltf_texture
+        .extension_value("KHR_texture_basisu")
+        .and_then(|ext| ext.get("source")?.as_u64())
+        .and_then(|idx| gltf.images().nth(idx as usize))
+        .or_else(|| gltf_texture.source())
+        .ok_or(GltfError::MissingTextureSource(gltf_texture.index()))?;
+
+    match image.source() {
         Source::View { view, mime_type } => {
             let start = view.offset();
             let end = view.offset() + view.length();
