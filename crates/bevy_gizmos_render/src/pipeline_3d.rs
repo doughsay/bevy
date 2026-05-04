@@ -22,7 +22,10 @@ use bevy_ecs::{
     system::{Commands, Query, Res, ResMut},
 };
 use bevy_image::BevyDefault as _;
-use bevy_pbr::{ExtractedAtmosphere, MeshPipeline, MeshPipelineKey, SetMeshViewBindGroup};
+use bevy_pbr::{
+    ExtractedAtmosphere, MeshPipeline, MeshPipelineKey, SetMeshViewBindGroup,
+    TerrainShadowMaskTexture,
+};
 use bevy_render::{
     render_asset::{prepare_assets, RenderAssets},
     render_phase::{
@@ -306,6 +309,7 @@ fn queue_line_gizmos_3d(
             Has<DeferredPrepass>,
             Has<OrderIndependentTransparencySettings>,
             Has<ExtractedAtmosphere>,
+            Has<TerrainShadowMaskTexture>,
         ),
     )>,
 ) -> Result<(), BevyError> {
@@ -319,7 +323,7 @@ fn queue_line_gizmos_3d(
         view,
         msaa,
         render_layers,
-        (normal_prepass, depth_prepass, motion_vector_prepass, deferred_prepass, oit, atmosphere),
+        (normal_prepass, depth_prepass, motion_vector_prepass, deferred_prepass, oit, atmosphere, terrain_shadow_mask),
     ) in &views
     {
         let Some(transparent_phase) = transparent_render_phases.get_mut(&view.retained_view_entity)
@@ -354,6 +358,10 @@ fn queue_line_gizmos_3d(
 
         if atmosphere {
             view_key |= MeshPipelineKey::ATMOSPHERE;
+        }
+
+        if terrain_shadow_mask {
+            view_key |= MeshPipelineKey::TERRAIN_SHADOW_MASK;
         }
 
         for (entity, main_entity, config) in &line_gizmos {
@@ -429,6 +437,9 @@ fn queue_line_joint_gizmos_3d(
             Has<DepthPrepass>,
             Has<MotionVectorPrepass>,
             Has<DeferredPrepass>,
+            Has<OrderIndependentTransparencySettings>,
+            Has<ExtractedAtmosphere>,
+            Has<TerrainShadowMaskTexture>,
         ),
     )>,
 ) {
@@ -441,7 +452,7 @@ fn queue_line_joint_gizmos_3d(
         view,
         msaa,
         render_layers,
-        (normal_prepass, depth_prepass, motion_vector_prepass, deferred_prepass),
+        (normal_prepass, depth_prepass, motion_vector_prepass, deferred_prepass, oit, atmosphere, terrain_shadow_mask),
     ) in &views
     {
         let Some(transparent_phase) = transparent_render_phases.get_mut(&view.retained_view_entity)
@@ -468,6 +479,18 @@ fn queue_line_joint_gizmos_3d(
 
         if deferred_prepass {
             view_key |= MeshPipelineKey::DEFERRED_PREPASS;
+        }
+
+        if oit {
+            view_key |= MeshPipelineKey::OIT_ENABLED;
+        }
+
+        if atmosphere {
+            view_key |= MeshPipelineKey::ATMOSPHERE;
+        }
+
+        if terrain_shadow_mask {
+            view_key |= MeshPipelineKey::TERRAIN_SHADOW_MASK;
         }
 
         for (entity, main_entity, config) in &line_gizmos {
